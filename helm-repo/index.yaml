@@ -3,7 +3,7 @@ entries:
   hono:
   - apiVersion: v1
     appVersion: 1.6.0
-    created: "2021-02-17T14:06:31.5307624+05:30"
+    created: "2021-02-17T16:13:13.6073991+05:30"
     dependencies:
     - condition: prometheus.createInstance
       name: prometheus
@@ -20,7 +20,7 @@ entries:
     description: |
       Eclipse Hono™ provides remote service interfaces for connecting large numbers of IoT devices to a back end and
       interacting with them in a uniform way regardless of the device communication protocol.
-    digest: 93d9cecb052f0bf382558839c31609e4239f654f26fae44ed377cc90e9b7288e
+    digest: 02329afd3a78aa0220924c9db9d12cbdeb82beba175e2c2acb5d3d4523009d74
     home: https://www.eclipse.org/hono/
     icon: https://www.eclipse.org/hono/favicon/favicon-48x48.png
     keywords:
@@ -40,4 +40,4 @@ entries:
     urls:
     - https://prabhaone.github.io/myhelmrepo/helm-repo/hono-1.5.1.tgz
     version: 1.5.1
-generated: "2021-02-17T14:06:31.5047774+05:30"
+generated: "2021-02-17T16:13:13.5823987+05:30"
