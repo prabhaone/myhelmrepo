@@ -38,6 +38,6 @@ entries:
     sources:
     - https://github.com/eclipse/hono
     urls:
-    - https://prabhaone.github.io/myhelmrepo/hono-1.5.1.tgz
+    - https://prabhaone.github.io/myhelmrepo/helm-repo/hono-1.5.1.tgz
     version: 1.5.1
 generated: "2021-02-17T14:06:31.5047774+05:30"
