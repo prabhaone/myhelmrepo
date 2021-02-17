@@ -1,0 +1,237 @@
+
+properties([
+    buildDiscarder(logRotator(numToKeepStr: '10')),
+    pipelineTriggers([
+        [$class:"SCMTrigger", scmpoll_spec:"H/10 * * * *"],
+    ]),
+    disableConcurrentBuilds()
+])
+
+def label = "packages-${UUID.randomUUID().toString()}"
+def HELM_VERSION = "2.16.1"
+
+def needToDeploy() {
+    return BRANCH_NAME == 'master' || BRANCH_NAME == 'develop'
+}
+
+def isStaging() {
+    return BRANCH_NAME == 'develop'
+}
+
+podTemplate(
+    label: label,
+    containers: [
+        containerTemplate(
+            name: 'jekyll',
+            image: 'docker.io/jekyll/jekyll:4.1.0',
+            ttyEnabled: true,
+            command: 'cat',
+            resourceRequestMemory: '4Gi',
+            resourceLimitMemory: '4Gi',
+        )
+    ],
+    volumes: [
+        emptyDirVolume(mountPath: '/home/jenkins', memory: false),
+        configMapVolume(mountPath: '/home/jenkins/.ssh', configMapName: 'known-hosts')
+    ]
+) {
+
+    node(label) {
+
+      timeout(time: 60, unit: "MINUTES") {
+
+      container('jnlp') {
+
+        withEnv([
+            "PROJECT_NAME=packages",
+            "PROJECT_BOT_NAME=Eclipse IoT Packages Bot",
+            "HELM_VERSION=${HELM_VERSION}",
+        ]) {
+
+            deleteDir()
+
+            try {
+
+                stage ('Init') {
+                    sh '''
+                        pwd
+                        env | sort
+                    '''
+                }
+
+                stage ('Clone') {
+                    dir ("build") {
+                        checkout scm
+                    }
+                }
+
+                stage('Helm Install') {
+                    sh '''
+                       curl --silent --location https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz --output helm.tar.gz
+                       tar --strip-components=1 -xvzf helm.tar.gz linux-amd64/helm
+                    '''
+                }
+
+            } catch (err) {
+                currentBuild.result = 'FAILED'
+                throw err
+            } /* try */
+        } /* with-env */
+      } /* container (jnlp) */
+
+      container('jekyll') {
+        withEnv([
+            "PROJECT_NAME=packages",
+            "PROJECT_BOT_NAME=Eclipse IoT Packages Bot",
+            "HELM_VERSION=${HELM_VERSION}",
+            "HELM_HOME=${env.WORKSPACE}/helm-home",
+        ]) {
+
+            try {
+
+                stage('Helm Init') {
+                    sh '''
+                        ${WORKSPACE}/helm init --client-only --stable-repo-url https://charts.helm.sh/stable
+                       '''
+                }
+
+                stage('Helm Build') {
+                    dir("build") {
+                        sh '''
+                            mkdir -p helm-repository
+                            for i in $(ls charts/*/Chart.yaml packages/*/Chart.yaml); do
+                                echo "Building $(dirname $i) ..."
+                                ${WORKSPACE}/helm package -u "$(dirname $i)" -d helm-repository
+                            done
+                            find helm-repository
+                        '''
+                    }
+                }
+
+                stage ('Jekyll Dependencies') {
+                    dir ("build/homepage") {
+                        sh '''
+                            cp -rd /usr/gem/. /usr/local/bundle/
+                            bundle install --path /usr/local/bundle/
+                        '''
+                    }
+                }
+
+                stage ('Jekyll Build') {
+                    dir ("build/homepage") {
+                        if ( isStaging() ) {
+                            sh 'bundle exec ruby /usr/gem/bin/jekyll build --config _config.yml,_config_staging.yml'
+                        } else {
+                            sh 'bundle exec ruby /usr/gem/bin/jekyll build'
+                        }
+                    }
+                }
+
+            } catch (err) {
+                currentBuild.result = 'FAILED'
+                throw err
+            }
+        } /* with-env */
+      } /* container (jekyll) */
+
+      container('jnlp') {
+
+        withEnv([
+            "PROJECT_NAME=packages",
+            "PROJECT_BOT_NAME=Eclipse IoT Packages Bot",
+        ]) {
+
+            try {
+
+                if ( needToDeploy() ) {
+
+                    stage ('Checkout website') {
+                        dir ("www") {
+                            sshagent(['git.eclipse.org-bot-ssh']) {
+                                sh '''
+                                    if [ ${BRANCH_NAME} == "develop" ]; then
+                                      BRANCH_NAME="staging"
+                                    fi
+                                    git config --global user.email "${PROJECT_NAME}-bot@eclipse.org"
+                                    git config --global user.name "${PROJECT_BOT_NAME}"
+                                    git clone ssh://genie.${PROJECT_NAME}@git.eclipse.org:29418/www.eclipse.org/${PROJECT_NAME} .
+                                    git checkout ${BRANCH_NAME}
+                                '''
+                            }
+                        }
+                    }
+
+                    stage ('Copy content') {
+                        // delete the whole directory, and re-populate with the new content 
+                        sh 'rm -rf www/* && cp -Rvf build/homepage/_site/* www/'
+
+                        // pre-fill with the published charts and index from the git repository
+                        dir ("www") {
+                            sh 'git checkout -- charts/'
+                        }
+
+                        // and only copy new packages, add marker file
+                        sh '''
+                            mkdir build/helm-add
+                            for i in $(ls build/helm-repository/*.tgz); do
+                              if [ ! -f "www/charts/$(basename $i)" ]; then
+                                echo "Publishing $(basename $i) ..."
+                                cp -v "$i" build/helm-add/
+                                touch build/perform-merge
+                              fi
+                            done
+                        '''
+                    }
+
+                    // only update the index, when it is missing
+                    if (fileExists('build/perform-merge')) {
+                    stage ('Rebuild helm Index') {
+                        // merge added content with existing index
+	                    if ( isStaging() ) {
+	                        sh '${WORKSPACE}/helm repo index --merge www/charts/index.yaml build/helm-add --url https://staging.eclipse.org/packages/charts'
+	                    } else {
+	                        sh '${WORKSPACE}/helm repo index --merge www/charts/index.yaml build/helm-add --url https://eclipse.org/packages/charts'
+                        }
+                        // copy new content and index to www-repo
+                        sh 'cp -v build/helm-add/* www/charts/'
+                    }
+                    } /* if */
+
+                    stage ('Commit and push') {
+                        dir("www") {
+                            sshagent(['git.eclipse.org-bot-ssh']) {
+                                sh '''
+                                if [ ${BRANCH_NAME} == "develop" ]; then
+                                  BRANCH_NAME="staging"
+                                fi
+
+                                git add -A
+                                if ! git diff --cached --exit-code; then
+                                  echo "Changes have been detected, publishing to repo 'www.eclipse.org/${PROJECT_NAME}'"
+                                  git commit -m "Website build ${JOB_NAME}-${BUILD_NUMBER}"
+                                  git log --graph --abbrev-commit --date=relative -n 5
+                                  git push origin HEAD:${BRANCH_NAME}
+                                else
+                                  echo "No changes have been detected since last build, nothing to publish"
+                                fi
+                                '''
+                            }
+                        }
+                    }
+
+                }
+
+            } catch (err) {
+                currentBuild.result = 'FAILED'
+                throw err
+            }
+
+        } /* with-env */
+
+      } /* container (jnlp) */
+
+      } /* timeout */
+
+  } /* node */
+
+} /* pod */
