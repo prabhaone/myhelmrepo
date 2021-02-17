@@ -1,0 +1,43 @@
+apiVersion: v1
+entries:
+  hono:
+  - apiVersion: v1
+    appVersion: 1.6.0
+    created: "2021-02-17T14:06:31.5307624+05:30"
+    dependencies:
+    - condition: prometheus.createInstance
+      name: prometheus
+      repository: https://prometheus-community.github.io/helm-charts
+      version: ~11.7.0
+    - condition: grafana.enabled
+      name: grafana
+      repository: https://grafana.github.io/helm-charts
+      version: ~3.8.15
+    - condition: mongodb.createInstance
+      name: mongodb
+      repository: https://charts.bitnami.com/bitnami
+      version: ~7.14.7
+    description: |
+      Eclipse Hono™ provides remote service interfaces for connecting large numbers of IoT devices to a back end and
+      interacting with them in a uniform way regardless of the device communication protocol.
+    digest: 93d9cecb052f0bf382558839c31609e4239f654f26fae44ed377cc90e9b7288e
+    home: https://www.eclipse.org/hono/
+    icon: https://www.eclipse.org/hono/favicon/favicon-48x48.png
+    keywords:
+    - iot-chart
+    - IoT
+    - messaging
+    maintainers:
+    - email: dbosanac@redhat.com
+      name: dejanb
+    - email: jreimann@redhat.com
+      name: ctron
+    - email: kai.hudalla@bosch.io
+      name: sophokles73
+    name: hono
+    sources:
+    - https://github.com/eclipse/hono
+    urls:
+    - https://prabhaone.github.io/myhelmrepo/hono-1.5.1.tgz
+    version: 1.5.1
+generated: "2021-02-17T14:06:31.5047774+05:30"
